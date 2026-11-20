@@ -1,0 +1,51 @@
+# One command to run everything:  docker compose up --build
+# (works with no .env; create one from .env.example to set real secrets)
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/exam_system
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-me-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me-in-production}
+      # CORS allow-list: the browser origin(s) of the frontend
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      ADMIN_NAME: ${ADMIN_NAME:-Admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@12345}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    ports:
+      - "5000:5000"
+    # seed is idempotent: creates the admin (+ demo users) only if missing, then starts the API
+    command: sh -c "node scripts/seed.js && node server.js"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # URL the BROWSER uses to reach the API
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  mongo_data:
